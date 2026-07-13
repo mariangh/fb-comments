@@ -8,6 +8,7 @@
   const ATTR = "data-fbcas-enhanced";
   const KEYWORDS_STORAGE_KEY = "fbcasKeywords";
   const selectedAuthors = new Map();
+  const automaticSelectionOptOut = new Set();
   let keywords = [];
   let scanScheduled = false;
   let blockingStarted = false;
@@ -72,6 +73,12 @@
     if (!matches.length) return;
     author.anchor.classList.add("fbcas-keyword-match");
     author.anchor.setAttribute("data-fbcas-keywords", matches.join(", "));
+
+    if (!selectedAuthors.has(author.key) && !automaticSelectionOptOut.has(author.key)) {
+      selectedAuthors.set(author.key, { name: author.name, profileUrl: author.profileUrl });
+      syncCheckboxes();
+      renderPanel();
+    }
   }
 
   function positionAuthorControl(comment, author, label) {
@@ -195,8 +202,13 @@
     comment.append(label);
     positionAuthorControl(comment, author, label);
     checkbox.addEventListener("change", () => {
-      if (checkbox.checked) selectedAuthors.set(author.key, { name: author.name, profileUrl: author.profileUrl });
-      else selectedAuthors.delete(author.key);
+      if (checkbox.checked) {
+        automaticSelectionOptOut.delete(author.key);
+        selectedAuthors.set(author.key, { name: author.name, profileUrl: author.profileUrl });
+      } else {
+        selectedAuthors.delete(author.key);
+        automaticSelectionOptOut.add(author.key);
+      }
       syncCheckboxes();
       renderPanel();
     });

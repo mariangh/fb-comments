@@ -1,6 +1,6 @@
 # Facebook Comment Author Selector
 
-Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca după o confirmare explicită. Versiunea curentă este `0.6.3`.
+Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca după o confirmare explicită. Versiunea curentă este `0.6.4`.
 
 ## Funcționalități
 
@@ -15,6 +15,7 @@ Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, 
 - detectează și comentariile încărcate prin „Vezi mai multe”, inclusiv containerele reciclate de Facebook;
 - include un dicționar local de cuvinte și expresii cheie;
 - marchează cu roșu autorii comentariilor care conțin termeni din dicționar;
+- selectează automat autorii marcați de dicționar, cu posibilitatea debifării manuale;
 - împiedică deschiderea preview-ului de profil la folosirea controlului „Selectează”;
 - procesează profilurile într-o fereastră auxiliară nefocusată și afișează progresul;
 - permite anularea operației între autori;
