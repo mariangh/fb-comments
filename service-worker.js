@@ -42,10 +42,41 @@ async function waitUntilComplete(tabId, timeout = 20000) {
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function closeTemporaryTab(job) {
-  if (!job.temporaryTabId) return;
-  try { await chrome.tabs.remove(job.temporaryTabId); } catch { /* deja închisă */ }
+async function closeAutomationWindow(job) {
+  if (job.automationWindowId) {
+    try { await chrome.windows.remove(job.automationWindowId); } catch { /* deja închisă */ }
+  } else if (job.temporaryTabId) {
+    try { await chrome.tabs.remove(job.temporaryTabId); } catch { /* deja închisă */ }
+  }
+  delete job.automationWindowId;
   delete job.temporaryTabId;
+}
+
+async function openProfileWithoutFocus(job, profileUrl) {
+  if (job.automationWindowId && job.temporaryTabId) {
+    try {
+      await chrome.windows.get(job.automationWindowId);
+      return await chrome.tabs.update(job.temporaryTabId, { url: profileUrl, active: true });
+    } catch {
+      delete job.automationWindowId;
+      delete job.temporaryTabId;
+    }
+  }
+
+  // Fila este activă în propria fereastră, deci Facebook îi randază DOM-ul,
+  // însă focused:false păstrează focusul în fereastra principală a utilizatorului.
+  const automationWindow = await chrome.windows.create({
+    url: profileUrl,
+    focused: false,
+    type: "popup",
+    width: 560,
+    height: 760
+  });
+  const tab = automationWindow.tabs?.[0];
+  if (!tab?.id) throw new Error("Fereastra de procesare nu a putut fi creată.");
+  job.automationWindowId = automationWindow.id;
+  job.temporaryTabId = tab.id;
+  return tab;
 }
 
 async function runJob() {
@@ -58,10 +89,7 @@ async function runJob() {
     const author = job.authors[job.index];
     await notifySource(job, `Procesez ${author.name} (${job.index + 1}/${job.authors.length})…`);
     try {
-      // Facebook amână uneori randarea zonei de profil în file inactive.
-      // Activarea temporară face disponibil meniul de acțiuni în mod consistent.
-      const tab = await chrome.tabs.create({ url: author.profileUrl, active: true });
-      job.temporaryTabId = tab.id;
+      const tab = await openProfileWithoutFocus(job, author.profileUrl);
       await saveJob(job);
       await waitUntilComplete(tab.id);
       await sleep(1800);
@@ -79,7 +107,6 @@ async function runJob() {
         error: error.message || "Eroare necunoscută"
       });
     }
-    await closeTemporaryTab(job);
     job.index += 1;
     const latest = await getJob();
     if (latest?.state === "cancelled") job.state = "cancelled";
@@ -88,13 +115,14 @@ async function runJob() {
 
   job.processing = false;
   if (job.state === "cancelled") {
-    await closeTemporaryTab(job);
+    await closeAutomationWindow(job);
     await saveJob(job);
     await notifySource(job, "Blocarea a fost anulată.", "cancelled");
     return;
   }
 
   job.state = "completed";
+  await closeAutomationWindow(job);
   await saveJob(job);
   const successes = job.results.filter((result) => result.ok).length;
   const failures = job.results.length - successes;
@@ -135,6 +163,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         state: "running",
         processing: false,
         sourceTabId: sender.tab.id,
+        sourceWindowId: sender.tab.windowId,
         authors,
         index: 0,
         results: []
@@ -151,7 +180,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (job?.state === "running") {
         job.state = "cancelled";
         await saveJob(job);
-        if (job.temporaryTabId) await chrome.tabs.remove(job.temporaryTabId).catch(() => {});
+        await closeAutomationWindow(job);
+        await saveJob(job);
       }
       sendResponse({ ok: true });
     })();

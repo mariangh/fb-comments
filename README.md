@@ -1,6 +1,6 @@
 # Facebook Comment Author Selector
 
-Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca după o confirmare explicită. Versiunea curentă este `0.4.0`.
+Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca după o confirmare explicită. Versiunea curentă este `0.5.0`.
 
 ## Funcționalități
 
@@ -13,7 +13,7 @@ Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, 
 - elimină din selecție și debifează autorii procesați cu succes;
 - reîncarcă automat fila Facebook după blocări reușite, pentru actualizarea comentariilor;
 - detectează și comentariile încărcate prin „Vezi mai multe”, inclusiv containerele reciclate de Facebook;
-- procesează profilurile pe rând în file temporare și afișează progresul;
+- procesează profilurile într-o fereastră auxiliară nefocusată și afișează progresul;
 - permite anularea operației între autori;
 - nu folosește servicii terțe, analytics sau stocare persistentă.
 
@@ -33,7 +33,7 @@ Selecția este păstrată doar în memoria filei curente și dispare la reîncă
 2. Bifează „Selectează” lângă autorii doriți.
 3. Verifică lista în panoul din dreapta-jos sau apăsând pictograma extensiei.
 4. Apasă **Pregătește blocarea** și verifică avertismentul.
-5. Apasă **Confirmă blocarea** pentru a începe operația efectivă. Autorii sunt procesați secvențial în file temporare active, deoarece Facebook poate amâna randarea profilurilor în fundal.
+5. Apasă **Confirmă blocarea** pentru a începe operația efectivă. Autorii sunt procesați secvențial într-o fereastră auxiliară nefocusată; fila principală își păstrează focusul.
 6. Urmărește rezultatul în panou. Dacă Facebook nu expune meniul sau dialogul așteptat, panoul afișează eroarea pentru autorul respectiv și operația continuă.
 
 > **Atenție:** blocarea este o modificare reală a contului Facebook. Interfața Facebook se poate schimba, iar extensia nu încearcă să ocolească verificări, confirmări suplimentare sau restricții ale platformei.
