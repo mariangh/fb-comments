@@ -15,6 +15,8 @@
   let scanScheduled = false;
   let blockingStarted = false;
   let blockingRunning = false;
+  let blockingProcessed = 0;
+  let blockingTotal = 0;
   let automationMode = false;
 
   /** Normalizează URL-ul pentru eliminarea parametrilor de tracking și a duplicatelor. */
@@ -313,7 +315,15 @@
     const count = panel.querySelector("#fbcas-count");
     const title = blockingRunning ? BLOCKING_PANEL_TITLE : PANEL_TITLE;
     if (headingLabel) headingLabel.textContent = title;
-    if (count) count.hidden = blockingRunning;
+    if (count) {
+      const currentBlockingPosition = blockingTotal
+        ? Math.min(Math.max(blockingProcessed, 1), blockingTotal)
+        : 0;
+      count.hidden = false;
+      count.textContent = blockingRunning
+        ? `${currentBlockingPosition}/${blockingTotal}`
+        : String(selectedAuthors.size);
+    }
     panel.setAttribute("aria-label", title);
   }
 
@@ -355,6 +365,8 @@
     const status = panel.querySelector("#fbcas-status");
 
     blockingRunning = true;
+    blockingTotal = authorsWithProfiles.length;
+    blockingProcessed = blockingTotal ? 1 : 0;
     updatePanelHeading(panel);
     actionButton.disabled = true;
     quickBlockButton.disabled = true;
@@ -368,6 +380,8 @@
       if (!response?.ok) throw new Error(response?.error || "Nu am putut porni operația.");
     } catch (error) {
       blockingRunning = false;
+      blockingProcessed = 0;
+      blockingTotal = 0;
       updatePanelHeading(panel);
       actionButton.disabled = false;
       cancelButton.hidden = true;
@@ -464,6 +478,12 @@
     const cancelButton = panel.querySelector("#fbcas-cancel");
     const message = panel.querySelector("#fbcas-status");
     const done = status.state === "completed" || status.state === "cancelled";
+    const statusTotal = Number.isFinite(status.total) ? status.total : blockingTotal;
+    const statusProcessed = Array.isArray(status.results)
+      ? status.results.length
+      : (Number(status.completed) || 0) + (Number(status.failed) || 0);
+    blockingTotal = statusTotal || blockingTotal;
+    blockingProcessed = Math.min(statusProcessed + (done ? 0 : 1), blockingTotal);
     if (!done) {
       blockingRunning = true;
       updatePanelHeading(panel);
@@ -486,6 +506,7 @@
       });
       syncCheckboxes();
       renderPanel();
+      updatePanelHeading(panel);
     }
     message.replaceChildren(document.createTextNode(status.message || "Se procesează…"));
     if (failures.length) {
@@ -500,6 +521,8 @@
     }
     if (done) {
       blockingRunning = false;
+      blockingProcessed = 0;
+      blockingTotal = 0;
       updatePanelHeading(panel);
       actionButton.disabled = false;
       resetBlockingConfirmation(panel);
