@@ -1,6 +1,6 @@
 # Facebook Comment Author Selector
 
-Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca după o confirmare explicită. Versiunea curentă este `0.6.6`.
+Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca din panoul din pagină. Versiunea curentă este `0.6.7`.
 
 ## Funcționalități
 
@@ -8,7 +8,8 @@ Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, 
 - adaugă o bifă lângă autorul fiecărui comentariu;
 - permite selecția multiplă și sincronizează duplicatele aceluiași autor;
 - afișează lista fără duplicate în panoul din pagină și în popup;
-- cere o a doua apăsare pentru confirmarea blocării efective;
+- cere o a doua apăsare pentru confirmarea blocării efective când folosești butonul mare din panou;
+- include în panoul minimizat un buton rapid `B`, lângă `+`, care pornește blocarea fără confirmarea din panou;
 - permite minimizarea și maximizarea panoului din butonul `−` / `+`;
 - elimină din selecție și debifează autorii procesați cu succes;
 - reîncarcă automat fila Facebook după blocări reușite, pentru actualizarea comentariilor;
@@ -40,8 +41,9 @@ Selecția este păstrată doar în memoria filei curente și dispare la reîncă
 3. Verifică lista în panoul din dreapta-jos sau apăsând pictograma extensiei.
 4. Deschide **Dicționar cuvinte cheie** pentru a adăuga termeni separați prin virgulă, punct și virgulă sau Enter. Potrivirea ignoră majusculele și diacriticele.
 5. Apasă **Pregătește blocarea** și verifică avertismentul.
-6. Apasă **Confirmă blocarea** pentru a începe operația efectivă. Autorii sunt procesați secvențial într-o fereastră auxiliară nefocusată; fila principală își păstrează focusul.
-7. Urmărește rezultatul în panou. Dacă Facebook nu expune meniul sau dialogul așteptat, panoul afișează eroarea pentru autorul respectiv și operația continuă.
+6. Apasă **Confirmă blocarea** pentru a începe operația efectivă sau, când panoul este minimizat, apasă butonul rapid `B` de lângă `+` pentru pornire directă.
+7. Autorii sunt procesați secvențial într-o fereastră auxiliară nefocusată; fila principală își păstrează focusul.
+8. Urmărește rezultatul în panou. Dacă Facebook nu expune meniul sau dialogul așteptat, panoul afișează eroarea pentru autorul respectiv și operația continuă.
 
 > **Atenție:** blocarea este o modificare reală a contului Facebook. Interfața Facebook se poate schimba, iar extensia nu încearcă să ocolească verificări, confirmări suplimentare sau restricții ale platformei.
 

@@ -7,11 +7,14 @@
 
   const ATTR = "data-fbcas-enhanced";
   const KEYWORDS_STORAGE_KEY = "fbcasKeywords";
+  const PANEL_TITLE = "Autori selectați";
+  const BLOCKING_PANEL_TITLE = "Blochez";
   const selectedAuthors = new Map();
   const automaticSelectionOptOut = new Set();
   let keywords = [];
   let scanScheduled = false;
   let blockingStarted = false;
+  let blockingRunning = false;
   let automationMode = false;
 
   /** Normalizează URL-ul pentru eliminarea parametrilor de tracking și a duplicatelor. */
@@ -240,6 +243,7 @@
       empty.className = "fbcas-empty";
       empty.textContent = "Niciun autor selectat";
       list.append(empty);
+      updateQuickBlockButton();
       return;
     }
     authors.forEach(({ name }) => {
@@ -247,6 +251,7 @@
       item.textContent = name;
       list.append(item);
     });
+    updateQuickBlockButton();
   }
 
   function renderKeywords() {
@@ -298,16 +303,93 @@
     scheduleScan();
   }
 
+  function blockableSelectedAuthors() {
+    return selectedList().filter((author) => author.profileUrl);
+  }
+
+  function updatePanelHeading(panel = document.querySelector("#fbcas-panel")) {
+    if (!panel) return;
+    const headingLabel = panel.querySelector("#fbcas-heading-label");
+    const count = panel.querySelector("#fbcas-count");
+    const title = blockingRunning ? BLOCKING_PANEL_TITLE : PANEL_TITLE;
+    if (headingLabel) headingLabel.textContent = title;
+    if (count) count.hidden = blockingRunning;
+    panel.setAttribute("aria-label", title);
+  }
+
+  function updateQuickBlockButton() {
+    const quickBlockButton = document.querySelector("#fbcas-quick-block");
+    if (!quickBlockButton) return;
+    quickBlockButton.disabled = blockingStarted || blockingRunning || !blockableSelectedAuthors().length;
+  }
+
+  function resetBlockingConfirmation(panel) {
+    const actionButton = panel.querySelector("#fbcas-prepare");
+    if (!actionButton) return;
+    blockingStarted = false;
+    actionButton.textContent = "Pregătește blocarea";
+    actionButton.classList.remove("fbcas-danger");
+  }
+
+  function validateBlockingSelection(panel) {
+    const status = panel.querySelector("#fbcas-status");
+    if (!selectedAuthors.size) {
+      status.textContent = "Selectează cel puțin un autor.";
+      return null;
+    }
+
+    const authorsWithProfiles = blockableSelectedAuthors();
+    if (!authorsWithProfiles.length) {
+      status.textContent = "Nu am putut identifica URL-urile profilurilor selectate.";
+      return null;
+    }
+
+    return authorsWithProfiles;
+  }
+
+  async function startBlocking(panel, authorsWithProfiles, options = {}) {
+    const { keepConfirmationOnError = false } = options;
+    const actionButton = panel.querySelector("#fbcas-prepare");
+    const cancelButton = panel.querySelector("#fbcas-cancel");
+    const quickBlockButton = panel.querySelector("#fbcas-quick-block");
+    const status = panel.querySelector("#fbcas-status");
+
+    blockingRunning = true;
+    updatePanelHeading(panel);
+    actionButton.disabled = true;
+    quickBlockButton.disabled = true;
+    cancelButton.hidden = false;
+    status.textContent = "Pornesc blocarea…";
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "FBCAS_START_BLOCKING",
+        authors: authorsWithProfiles
+      });
+      if (!response?.ok) throw new Error(response?.error || "Nu am putut porni operația.");
+    } catch (error) {
+      blockingRunning = false;
+      updatePanelHeading(panel);
+      actionButton.disabled = false;
+      cancelButton.hidden = true;
+      if (!keepConfirmationOnError) resetBlockingConfirmation(panel);
+      updateQuickBlockButton();
+      status.textContent = error.message;
+    }
+  }
+
   function createPanel() {
     if (automationMode || document.querySelector("#fbcas-panel")) return;
     const panel = document.createElement("aside");
     panel.id = "fbcas-panel";
     panel.className = "fbcas-minimized";
-    panel.setAttribute("aria-label", "Autori selectați");
+    panel.setAttribute("aria-label", PANEL_TITLE);
     panel.innerHTML = `
       <div class="fbcas-header">
-        <div class="fbcas-heading">Autori selectați <span id="fbcas-count">0</span></div>
-        <button id="fbcas-toggle-panel" type="button" aria-label="Maximizează panoul" title="Maximizează">+</button>
+        <div class="fbcas-heading"><span id="fbcas-heading-label">${PANEL_TITLE}</span> <span id="fbcas-count">0</span></div>
+        <div class="fbcas-header-actions">
+          <button id="fbcas-quick-block" type="button" aria-label="Pornește blocarea fără confirmare" title="Blochează acum">B</button>
+          <button id="fbcas-toggle-panel" type="button" aria-label="Maximizează panoul" title="Maximizează">+</button>
+        </div>
       </div>
       <div id="fbcas-panel-body">
         <ul id="fbcas-selected-list"></ul>
@@ -327,8 +409,10 @@
       </div>
     `;
     document.body.append(panel);
+    updatePanelHeading(panel);
     const actionButton = panel.querySelector("#fbcas-prepare");
     const cancelButton = panel.querySelector("#fbcas-cancel");
+    const quickBlockButton = panel.querySelector("#fbcas-quick-block");
     const toggleButton = panel.querySelector("#fbcas-toggle-panel");
     const keywordForm = panel.querySelector("#fbcas-keyword-form");
     const keywordInput = panel.querySelector("#fbcas-keyword-input");
@@ -345,41 +429,25 @@
       keywordInput.focus();
     });
     actionButton.addEventListener("click", async () => {
-      const count = selectedAuthors.size;
+      const authorsWithProfiles = validateBlockingSelection(panel);
+      if (!authorsWithProfiles) return;
       const status = panel.querySelector("#fbcas-status");
-      if (!count) {
-        status.textContent = "Selectează cel puțin un autor.";
-        return;
-      }
-
-      const authorsWithProfiles = selectedList().filter((author) => author.profileUrl);
-      if (!authorsWithProfiles.length) {
-        status.textContent = "Nu am putut identifica URL-urile profilurilor selectate.";
-        return;
-      }
 
       if (!blockingStarted) {
         blockingStarted = true;
         actionButton.textContent = `Confirmă blocarea (${authorsWithProfiles.length})`;
         actionButton.classList.add("fbcas-danger");
+        quickBlockButton.disabled = true;
         status.textContent = "Confirmă pentru a bloca efectiv autorii. Acțiunea modifică lista ta de blocări Facebook.";
         return;
       }
 
-      actionButton.disabled = true;
-      cancelButton.hidden = false;
-      status.textContent = "Pornesc blocarea…";
-      try {
-        const response = await chrome.runtime.sendMessage({
-          type: "FBCAS_START_BLOCKING",
-          authors: authorsWithProfiles
-        });
-        if (!response?.ok) throw new Error(response?.error || "Nu am putut porni operația.");
-      } catch (error) {
-        actionButton.disabled = false;
-        cancelButton.hidden = true;
-        status.textContent = error.message;
-      }
+      await startBlocking(panel, authorsWithProfiles, { keepConfirmationOnError: true });
+    });
+    quickBlockButton.addEventListener("click", async () => {
+      const authorsWithProfiles = validateBlockingSelection(panel);
+      if (!authorsWithProfiles) return;
+      await startBlocking(panel, authorsWithProfiles);
     });
     cancelButton.addEventListener("click", async () => {
       await chrome.runtime.sendMessage({ type: "FBCAS_CANCEL_BLOCKING" });
@@ -396,6 +464,10 @@
     const cancelButton = panel.querySelector("#fbcas-cancel");
     const message = panel.querySelector("#fbcas-status");
     const done = status.state === "completed" || status.state === "cancelled";
+    if (!done) {
+      blockingRunning = true;
+      updatePanelHeading(panel);
+    }
 
     const failures = Array.isArray(status.results)
       ? status.results.filter((result) => !result.ok)
@@ -427,12 +499,13 @@
       message.append(details);
     }
     if (done) {
+      blockingRunning = false;
+      updatePanelHeading(panel);
       actionButton.disabled = false;
-      actionButton.textContent = "Pregătește blocarea";
-      actionButton.classList.remove("fbcas-danger");
+      resetBlockingConfirmation(panel);
+      updateQuickBlockButton();
       cancelButton.hidden = true;
       cancelButton.disabled = false;
-      blockingStarted = false;
     }
   }
 
