@@ -1,6 +1,8 @@
-# Facebook Comment Author Selector
+# Comment Block Helper for Facebook
 
-Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca din panoul din pagină. Versiunea curentă este `0.6.9`.
+Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca din panoul din pagină. Versiunea curentă este `0.6.10`.
+
+Această extensie nu este afiliată, aprobată, sponsorizată sau conectată cu Meta Platforms, Inc. sau Facebook.
 
 ## Funcționalități
 
@@ -22,9 +24,9 @@ Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, 
 - împiedică deschiderea preview-ului de profil la folosirea controlului „Selectează”;
 - procesează profilurile într-o fereastră auxiliară nefocusată și afișează progresul;
 - permite anularea operației între autori;
-- nu folosește servicii terțe, analytics sau stocare persistentă.
+- nu folosește servere ale dezvoltatorului, analytics, reclame sau linkuri affiliate.
 
-Selecția este păstrată doar în memoria filei curente și dispare la reîncărcarea paginii. Dicționarul este păstrat în `chrome.storage.sync`, astfel încât se poate sincroniza între browserele Chrome în care utilizatorul este logat și are Chrome Sync activ. La prima rulare după actualizare, termenii vechi din `chrome.storage.local` sunt migrați automat în stocarea sincronizată. Starea temporară a operației este păstrată în `chrome.storage.session` și dispare când se închide sesiunea Chrome. Datele sunt folosite numai pentru interacțiunea cu paginile Facebook declarate în `manifest.json`; nu sunt trimise către servicii terțe.
+Selecția este păstrată doar în memoria filei curente și dispare la reîncărcarea paginii. Dicționarul este păstrat în `chrome.storage.sync`, astfel încât se poate sincroniza între browserele Chrome în care utilizatorul este logat și are Chrome Sync activ. La prima rulare după actualizare, termenii vechi din `chrome.storage.local` sunt migrați automat în stocarea sincronizată. Starea temporară a operației este păstrată în `chrome.storage.session` și dispare când se închide sesiunea Chrome. Datele sunt folosite numai pentru interacțiunea cu paginile Facebook declarate în `manifest.json`; extensia nu le trimite către servere ale dezvoltatorului.
 
 ## Instalare prin `chrome://extensions`
 
@@ -47,6 +49,12 @@ Selecția este păstrată doar în memoria filei curente și dispare la reîncă
 
 > **Atenție:** blocarea este o modificare reală a contului Facebook. Interfața Facebook se poate schimba, iar extensia nu încearcă să ocolească verificări, confirmări suplimentare sau restricții ale platformei.
 
+## Publicare Chrome Web Store
+
+- [PRIVACY_POLICY.md](PRIVACY_POLICY.md) conține politica de confidențialitate pregătită pentru câmpul Privacy Policy URL din Developer Dashboard.
+- [CHROME_WEB_STORE_SUBMISSION.md](CHROME_WEB_STORE_SUBMISSION.md) conține numele recomandat, descrierea, single purpose statement, justificările de permisiuni, declarațiile de privacy și instrucțiunile pentru reviewer.
+- Iconurile declarate în `manifest.json` sunt în directorul `icons/`.
+
 ## Structură
 
 - `manifest.json` — declarația Manifest V3 și paginile permise;
@@ -54,5 +62,6 @@ Selecția este păstrată doar în memoria filei curente și dispare la reîncă
 - `content.css` — stilurile izolate prin prefixul `fbcas`;
 - `popup.html`, `popup.js` — vizualizarea selecției din fila activă.
 - `service-worker.js` — coada secvențială, filele temporare și raportarea rezultatelor.
+- `PRIVACY_POLICY.md`, `CHROME_WEB_STORE_SUBMISSION.md` — materialele de publicare.
 
 Facebook își modifică periodic DOM-ul; detecția evită clasele CSS generate, dar etichetele meniului de blocare pot necesita ajustări ulterioare. Sunt recunoscute interfețele Facebook în română și engleză.
