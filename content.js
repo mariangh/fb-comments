@@ -7,6 +7,8 @@
 
   const ATTR = "data-fbcas-enhanced";
   const KEYWORDS_STORAGE_KEY = "fbcasKeywords";
+  const KEYWORDS_STORAGE_AREA = chrome.storage.sync;
+  const LEGACY_KEYWORDS_STORAGE_AREA = chrome.storage.local;
   const PANEL_TITLE = "Autori selectați";
   const BLOCKING_PANEL_TITLE = "Blochez";
   const selectedAuthors = new Map();
@@ -53,6 +55,48 @@
       .toLocaleLowerCase("ro-RO")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  function normalizeKeywordList(entries) {
+    const known = new Set();
+    return (Array.isArray(entries) ? entries : []).reduce((list, entry) => {
+      const keyword = String(entry || "").trim();
+      const normalized = normalizeForMatching(keyword);
+      if (normalized && !known.has(normalized)) {
+        known.add(normalized);
+        list.push(keyword);
+      }
+      return list;
+    }, []);
+  }
+
+  function mergeKeywordLists(...lists) {
+    return normalizeKeywordList(lists.flat());
+  }
+
+  async function readKeywordsFromStorage(storageArea) {
+    const stored = await storageArea.get({ [KEYWORDS_STORAGE_KEY]: [] });
+    return normalizeKeywordList(stored[KEYWORDS_STORAGE_KEY]);
+  }
+
+  async function saveSyncedKeywords(nextKeywords) {
+    keywords = normalizeKeywordList(nextKeywords);
+    await KEYWORDS_STORAGE_AREA.set({ [KEYWORDS_STORAGE_KEY]: keywords });
+    renderKeywords();
+    scheduleScan();
+  }
+
+  function friendlyErrorMessage(error) {
+    const message = error?.message || String(error || "");
+    if (/Extension context invalidated/i.test(message)) {
+      return "Extensia a fost reîncărcată. Reîncarcă pagina Facebook ca panoul să se reconecteze.";
+    }
+    return message || "A apărut o eroare.";
+  }
+
+  function setStatusMessage(message) {
+    const status = document.querySelector("#fbcas-status");
+    if (status) status.textContent = message;
   }
 
   function extractCommentText(comment, author) {
@@ -273,10 +317,15 @@
       removeButton.title = `Șterge ${keyword}`;
       removeButton.setAttribute("aria-label", `Șterge cuvântul cheie ${keyword}`);
       removeButton.addEventListener("click", async () => {
-        keywords = keywords.filter((entry) => normalizeForMatching(entry) !== normalizeForMatching(keyword));
-        await chrome.storage.local.set({ [KEYWORDS_STORAGE_KEY]: keywords });
-        renderKeywords();
-        scheduleScan();
+        try {
+          const latestKeywords = await readKeywordsFromStorage(KEYWORDS_STORAGE_AREA);
+          const removedKeyword = normalizeForMatching(keyword);
+          await saveSyncedKeywords(
+            latestKeywords.filter((entry) => normalizeForMatching(entry) !== removedKeyword)
+          );
+        } catch (error) {
+          setStatusMessage(friendlyErrorMessage(error));
+        }
       });
       chip.append(removeButton);
       container.append(chip);
@@ -285,22 +334,20 @@
 
   async function addKeywords(rawValue) {
     const additions = rawValue.split(/[,;\n]+/).map((entry) => entry.trim()).filter(Boolean);
-    const known = new Set(keywords.map(normalizeForMatching));
-    additions.forEach((entry) => {
-      const normalized = normalizeForMatching(entry);
-      if (normalized && !known.has(normalized)) {
-        keywords.push(entry);
-        known.add(normalized);
-      }
-    });
-    await chrome.storage.local.set({ [KEYWORDS_STORAGE_KEY]: keywords });
-    renderKeywords();
-    scheduleScan();
+    const latestKeywords = await readKeywordsFromStorage(KEYWORDS_STORAGE_AREA);
+    await saveSyncedKeywords(mergeKeywordLists(latestKeywords, keywords, additions));
   }
 
   async function loadKeywords() {
-    const stored = await chrome.storage.local.get({ [KEYWORDS_STORAGE_KEY]: [] });
-    keywords = Array.isArray(stored[KEYWORDS_STORAGE_KEY]) ? stored[KEYWORDS_STORAGE_KEY] : [];
+    const [syncedKeywords, legacyKeywords] = await Promise.all([
+      readKeywordsFromStorage(KEYWORDS_STORAGE_AREA),
+      readKeywordsFromStorage(LEGACY_KEYWORDS_STORAGE_AREA)
+    ]);
+    const mergedKeywords = mergeKeywordLists(syncedKeywords, legacyKeywords);
+    keywords = mergedKeywords;
+    if (mergedKeywords.length !== syncedKeywords.length) {
+      await KEYWORDS_STORAGE_AREA.set({ [KEYWORDS_STORAGE_KEY]: mergedKeywords });
+    }
     renderKeywords();
     scheduleScan();
   }
@@ -333,6 +380,18 @@
     quickBlockButton.disabled = blockingStarted || blockingRunning || !blockableSelectedAuthors().length;
   }
 
+  function setBlockingControls(panel, running) {
+    const actionButton = panel.querySelector("#fbcas-prepare");
+    const cancelButton = panel.querySelector("#fbcas-cancel");
+    const quickBlockButton = panel.querySelector("#fbcas-quick-block");
+    if (actionButton) actionButton.disabled = running;
+    if (quickBlockButton) quickBlockButton.disabled = running || blockingStarted || !blockableSelectedAuthors().length;
+    if (cancelButton) {
+      cancelButton.hidden = !running;
+      cancelButton.disabled = false;
+    }
+  }
+
   function resetBlockingConfirmation(panel) {
     const actionButton = panel.querySelector("#fbcas-prepare");
     if (!actionButton) return;
@@ -359,18 +418,13 @@
 
   async function startBlocking(panel, authorsWithProfiles, options = {}) {
     const { keepConfirmationOnError = false } = options;
-    const actionButton = panel.querySelector("#fbcas-prepare");
-    const cancelButton = panel.querySelector("#fbcas-cancel");
-    const quickBlockButton = panel.querySelector("#fbcas-quick-block");
     const status = panel.querySelector("#fbcas-status");
 
     blockingRunning = true;
     blockingTotal = authorsWithProfiles.length;
     blockingProcessed = blockingTotal ? 1 : 0;
     updatePanelHeading(panel);
-    actionButton.disabled = true;
-    quickBlockButton.disabled = true;
-    cancelButton.hidden = false;
+    setBlockingControls(panel, true);
     status.textContent = "Pornesc blocarea…";
     try {
       const response = await chrome.runtime.sendMessage({
@@ -383,11 +437,19 @@
       blockingProcessed = 0;
       blockingTotal = 0;
       updatePanelHeading(panel);
-      actionButton.disabled = false;
-      cancelButton.hidden = true;
+      setBlockingControls(panel, false);
       if (!keepConfirmationOnError) resetBlockingConfirmation(panel);
       updateQuickBlockButton();
-      status.textContent = error.message;
+      status.textContent = friendlyErrorMessage(error);
+    }
+  }
+
+  async function reconnectBlockingStatus(panel) {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "FBCAS_GET_BLOCKING_STATUS" });
+      if (response?.status) updateBlockingStatus(response.status);
+    } catch {
+      // Worker-ul poate fi trezit mai lent; următorul status live va reface panoul.
     }
   }
 
@@ -438,9 +500,13 @@
     });
     keywordForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      await addKeywords(keywordInput.value);
-      keywordInput.value = "";
-      keywordInput.focus();
+      try {
+        await addKeywords(keywordInput.value);
+        keywordInput.value = "";
+        keywordInput.focus();
+      } catch (error) {
+        setStatusMessage(friendlyErrorMessage(error));
+      }
     });
     actionButton.addEventListener("click", async () => {
       const authorsWithProfiles = validateBlockingSelection(panel);
@@ -464,18 +530,21 @@
       await startBlocking(panel, authorsWithProfiles);
     });
     cancelButton.addEventListener("click", async () => {
-      await chrome.runtime.sendMessage({ type: "FBCAS_CANCEL_BLOCKING" });
-      cancelButton.disabled = true;
+      try {
+        await chrome.runtime.sendMessage({ type: "FBCAS_CANCEL_BLOCKING" });
+        cancelButton.disabled = true;
+      } catch (error) {
+        setStatusMessage(friendlyErrorMessage(error));
+      }
     });
     renderPanel();
     renderKeywords();
+    reconnectBlockingStatus(panel);
   }
 
   function updateBlockingStatus(status) {
     const panel = document.querySelector("#fbcas-panel");
     if (!panel) return;
-    const actionButton = panel.querySelector("#fbcas-prepare");
-    const cancelButton = panel.querySelector("#fbcas-cancel");
     const message = panel.querySelector("#fbcas-status");
     const done = status.state === "completed" || status.state === "cancelled";
     const statusTotal = Number.isFinite(status.total) ? status.total : blockingTotal;
@@ -486,7 +555,9 @@
     blockingProcessed = Math.min(statusProcessed + (done ? 0 : 1), blockingTotal);
     if (!done) {
       blockingRunning = true;
+      blockingStarted = false;
       updatePanelHeading(panel);
+      setBlockingControls(panel, true);
     }
 
     const failures = Array.isArray(status.results)
@@ -524,11 +595,9 @@
       blockingProcessed = 0;
       blockingTotal = 0;
       updatePanelHeading(panel);
-      actionButton.disabled = false;
       resetBlockingConfirmation(panel);
+      setBlockingControls(panel, false);
       updateQuickBlockButton();
-      cancelButton.hidden = true;
-      cancelButton.disabled = false;
     }
   }
 
@@ -639,14 +708,12 @@
   observer.observe(document.documentElement, { childList: true, subtree: true });
   addEventListener("scroll", scheduleScan, { passive: true });
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local" || !changes[KEYWORDS_STORAGE_KEY]) return;
-    keywords = Array.isArray(changes[KEYWORDS_STORAGE_KEY].newValue)
-      ? changes[KEYWORDS_STORAGE_KEY].newValue
-      : [];
+    if (areaName !== "sync" || !changes[KEYWORDS_STORAGE_KEY]) return;
+    keywords = normalizeKeywordList(changes[KEYWORDS_STORAGE_KEY].newValue);
     renderKeywords();
     scheduleScan();
   });
-  loadKeywords();
+  loadKeywords().catch((error) => setStatusMessage(friendlyErrorMessage(error)));
   scheduleScan();
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -663,7 +730,7 @@
       document.querySelector("#fbcas-panel")?.remove();
       blockCurrentProfile(message.profileUrl)
         .then(sendResponse)
-        .catch((error) => sendResponse({ ok: false, error: error.message }));
+        .catch((error) => sendResponse({ ok: false, error: friendlyErrorMessage(error) }));
       return true;
     }
   });

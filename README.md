@@ -1,6 +1,6 @@
 # Facebook Comment Author Selector
 
-Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca din panoul din pagină. Versiunea curentă este `0.6.7`.
+Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, permite selectarea autorilor și îi poate bloca din panoul din pagină. Versiunea curentă este `0.6.9`.
 
 ## Funcționalități
 
@@ -14,7 +14,7 @@ Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, 
 - elimină din selecție și debifează autorii procesați cu succes;
 - reîncarcă automat fila Facebook după blocări reușite, pentru actualizarea comentariilor;
 - detectează și comentariile încărcate prin „Vezi mai multe”, inclusiv containerele reciclate de Facebook;
-- include un dicționar local de cuvinte și expresii cheie;
+- include un dicționar sincronizat de cuvinte și expresii cheie;
 - marchează cu roșu autorii comentariilor care conțin termeni din dicționar;
 - selectează automat autorii marcați de dicționar, cu posibilitatea debifării manuale;
 - păstrează butoanele de blocare într-un dock sticky semi-transparent la baza panoului;
@@ -24,7 +24,7 @@ Extensie Chrome Manifest V3 care detectează comentariile vizibile pe Facebook, 
 - permite anularea operației între autori;
 - nu folosește servicii terțe, analytics sau stocare persistentă.
 
-Selecția este păstrată doar în memoria filei curente și dispare la reîncărcarea paginii. Dicționarul este păstrat local în `chrome.storage.local`. Starea temporară a operației este păstrată în `chrome.storage.session` și dispare când se închide sesiunea Chrome. Datele sunt folosite numai pentru interacțiunea cu paginile Facebook declarate în `manifest.json`; nu sunt trimise către servicii terțe.
+Selecția este păstrată doar în memoria filei curente și dispare la reîncărcarea paginii. Dicționarul este păstrat în `chrome.storage.sync`, astfel încât se poate sincroniza între browserele Chrome în care utilizatorul este logat și are Chrome Sync activ. La prima rulare după actualizare, termenii vechi din `chrome.storage.local` sunt migrați automat în stocarea sincronizată. Starea temporară a operației este păstrată în `chrome.storage.session` și dispare când se închide sesiunea Chrome. Datele sunt folosite numai pentru interacțiunea cu paginile Facebook declarate în `manifest.json`; nu sunt trimise către servicii terțe.
 
 ## Instalare prin `chrome://extensions`
 

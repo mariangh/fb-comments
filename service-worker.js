@@ -1,6 +1,7 @@
 "use strict";
 
 const JOB_KEY = "fbcasBlockingJob";
+let jobRunnerActive = false;
 
 async function getJob() {
   return (await chrome.storage.session.get(JOB_KEY))[JOB_KEY] || null;
@@ -10,13 +11,34 @@ async function saveJob(job) {
   await chrome.storage.session.set({ [JOB_KEY]: job });
 }
 
+function buildStatus(job, message = "", state = job.state || "running") {
+  const authors = Array.isArray(job.authors) ? job.authors : [];
+  const results = Array.isArray(job.results) ? job.results : [];
+  const total = authors.length;
+  const index = Math.min(Math.max(Number(job.index) || 0, 0), Math.max(total - 1, 0));
+  const currentAuthor = authors[index];
+  const storedMessage = job.lastMessageIndex === job.index ? job.lastMessage : "";
+  const fallbackMessage = state === "running" && total
+    ? `Procesez ${currentAuthor?.name || "autorul curent"} (${index + 1}/${total})…`
+    : "Se procesează…";
+  return {
+    state,
+    message: message || storedMessage || fallbackMessage,
+    completed: results.filter((result) => result.ok).length,
+    failed: results.filter((result) => !result.ok).length,
+    total,
+    results
+  };
+}
+
 async function notifySource(job, message, state = "running") {
-  const completed = job.results.filter((result) => result.ok).length;
-  const failed = job.results.filter((result) => !result.ok).length;
+  job.lastMessage = message;
+  job.lastMessageIndex = job.index;
+  await saveJob(job);
   try {
     await chrome.tabs.sendMessage(job.sourceTabId, {
       type: "FBCAS_BLOCKING_STATUS",
-      status: { state, message, completed, failed, total: job.authors.length, results: job.results }
+      status: buildStatus(job, message, state)
     });
   } catch {
     // Fila sursă poate fi închisă; procesarea poate continua independent.
@@ -80,67 +102,70 @@ async function openProfileWithoutFocus(job, profileUrl) {
 }
 
 async function runJob() {
+  if (jobRunnerActive) return;
   let job = await getJob();
-  if (!job || job.state !== "running" || job.processing) return;
-  job.processing = true;
-  await saveJob(job);
+  if (!job || job.state !== "running") return;
+  jobRunnerActive = true;
 
-  while (job.index < job.authors.length && job.state === "running") {
-    const author = job.authors[job.index];
-    await notifySource(job, `Procesez ${author.name} (${job.index + 1}/${job.authors.length})…`);
-    try {
-      const tab = await openProfileWithoutFocus(job, author.profileUrl);
+  try {
+    while (job.index < job.authors.length && job.state === "running") {
+      const author = job.authors[job.index];
+      await notifySource(job, `Procesez ${author.name} (${job.index + 1}/${job.authors.length})…`);
+      try {
+        const tab = await openProfileWithoutFocus(job, author.profileUrl);
+        await saveJob(job);
+        await waitUntilComplete(tab.id);
+        await sleep(1800);
+        const response = await chrome.tabs.sendMessage(tab.id, {
+          type: "FBCAS_BLOCK_PROFILE",
+          profileUrl: author.profileUrl
+        });
+        if (!response?.ok) throw new Error(response?.error || "Blocarea nu a fost confirmată de pagină.");
+        job.results.push({ name: author.name, profileUrl: author.profileUrl, ok: true });
+      } catch (error) {
+        job.results.push({
+          name: author.name,
+          profileUrl: author.profileUrl,
+          ok: false,
+          error: error.message || "Eroare necunoscută"
+        });
+      }
+      job.index += 1;
+      const latest = await getJob();
+      if (latest?.state === "cancelled") job.state = "cancelled";
       await saveJob(job);
-      await waitUntilComplete(tab.id);
-      await sleep(1800);
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        type: "FBCAS_BLOCK_PROFILE",
-        profileUrl: author.profileUrl
-      });
-      if (!response?.ok) throw new Error(response?.error || "Blocarea nu a fost confirmată de pagină.");
-      job.results.push({ name: author.name, profileUrl: author.profileUrl, ok: true });
-    } catch (error) {
-      job.results.push({
-        name: author.name,
-        profileUrl: author.profileUrl,
-        ok: false,
-        error: error.message || "Eroare necunoscută"
-      });
     }
-    job.index += 1;
-    const latest = await getJob();
-    if (latest?.state === "cancelled") job.state = "cancelled";
-    await saveJob(job);
-  }
 
-  job.processing = false;
-  if (job.state === "cancelled") {
+    if (job.state === "cancelled") {
+      await closeAutomationWindow(job);
+      await saveJob(job);
+      await notifySource(job, "Blocarea a fost anulată.", "cancelled");
+      return;
+    }
+
+    job.state = "completed";
     await closeAutomationWindow(job);
     await saveJob(job);
-    await notifySource(job, "Blocarea a fost anulată.", "cancelled");
-    return;
-  }
+    const successes = job.results.filter((result) => result.ok).length;
+    const failures = job.results.length - successes;
+    const firstFailure = job.results.find((result) => !result.ok);
+    const summary = failures
+      ? `Finalizat: ${successes} blocați, ${failures} nereușiți. Prima eroare: ${firstFailure?.error || "necunoscută"}`
+      : `Finalizat: ${successes} ${successes === 1 ? "autor blocat" : "autori blocați"}.`;
+    await notifySource(job, summary, "completed");
 
-  job.state = "completed";
-  await closeAutomationWindow(job);
-  await saveJob(job);
-  const successes = job.results.filter((result) => result.ok).length;
-  const failures = job.results.length - successes;
-  const firstFailure = job.results.find((result) => !result.ok);
-  const summary = failures
-    ? `Finalizat: ${successes} blocați, ${failures} nereușiți. Prima eroare: ${firstFailure?.error || "necunoscută"}`
-    : `Finalizat: ${successes} ${successes === 1 ? "autor blocat" : "autori blocați"}.`;
-  await notifySource(job, summary, "completed");
-
-  // Lasă sumarul vizibil pentru scurt timp, apoi reconstruiește pagina Facebook.
-  // La reîncărcare, comentariile conturilor blocate nu ar mai trebui afișate.
-  if (successes > 0) {
-    await sleep(1800);
-    try {
-      await chrome.tabs.reload(job.sourceTabId);
-    } catch {
-      // Fila sursă poate fi închisă între timp.
+    // Lasă sumarul vizibil pentru scurt timp, apoi reconstruiește pagina Facebook.
+    // La reîncărcare, comentariile conturilor blocate nu ar mai trebui afișate.
+    if (successes > 0) {
+      await sleep(1800);
+      try {
+        await chrome.tabs.reload(job.sourceTabId);
+      } catch {
+        // Fila sursă poate fi închisă între timp.
+      }
     }
+  } finally {
+    jobRunnerActive = false;
   }
 }
 
@@ -161,7 +186,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       await saveJob({
         state: "running",
-        processing: false,
         sourceTabId: sender.tab.id,
         sourceWindowId: sender.tab.windowId,
         authors,
@@ -170,6 +194,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       sendResponse({ ok: true });
       runJob();
+    })().catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "FBCAS_GET_BLOCKING_STATUS") {
+    (async () => {
+      const job = await getJob();
+      if (job?.state === "running") {
+        sendResponse({ ok: true, status: buildStatus(job) });
+        runJob();
+        return;
+      }
+      sendResponse({ ok: true, status: null });
     })().catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
